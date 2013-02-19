@@ -65,8 +65,7 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	 * We only need to do colour alignment if either the I or D
 	 * caches alias.
 	 */
-	if (aliasing)
-		do_align = filp || (flags & MAP_SHARED);
+	do_align = filp || (flags & MAP_SHARED);
 
 	/*
 	 * We enforce the MAP_FIXED case.
@@ -118,8 +117,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	 * We only need to do colour alignment if either the I or D
 	 * caches alias.
 	 */
-	if (aliasing)
-		do_align = filp || (flags & MAP_SHARED);
+	do_align = filp || (flags & MAP_SHARED);
 
 	/* requested length too big for entire address space */
 	if (len > TASK_SIZE)

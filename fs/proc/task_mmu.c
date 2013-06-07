@@ -1084,8 +1084,8 @@ static int pagemap_hugetlb_range(pte_t *pte, unsigned long hmask,
  * determine which areas of memory are actually mapped and llseek to
  * skip over unmapped regions.
  */
-static ssize_t pagemap_read(struct file *file, char __user *buf,
-			    size_t count, loff_t *ppos)
+static ssize_t do_pagemap_read(struct file *file, char __user *buf,
+			       size_t count, loff_t *ppos, bool v2)
 {
 	struct task_struct *task = get_proc_task(file_inode(file));
 	struct mm_struct *mm;
@@ -1110,7 +1110,7 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 	if (!count)
 		goto out_task;
 
-	pm.v2 = soft_dirty_cleared;
+	pm.v2 = v2;
 	pm.len = PM_ENTRY_BYTES * (PAGEMAP_WALK_SIZE >> PAGE_SHIFT);
 	pm.buffer = kmalloc(pm.len, GFP_TEMPORARY);
 	ret = -ENOMEM;
@@ -1191,10 +1191,27 @@ static int pagemap_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
+static ssize_t pagemap_read(struct file *file, char __user *buf,
+			    size_t count, loff_t *ppos)
+{
+	return do_pagemap_read(file, buf, count, ppos, soft_dirty_cleared);
+}
+
 const struct file_operations proc_pagemap_operations = {
 	.llseek		= mem_lseek, /* borrow this */
 	.read		= pagemap_read,
 	.open		= pagemap_open,
+};
+
+static ssize_t pagemap2_read(struct file *file, char __user *buf,
+			    size_t count, loff_t *ppos)
+{
+	return do_pagemap_read(file, buf, count, ppos, true);
+}
+
+const struct file_operations proc_pagemap2_operations = {
+	.llseek		= mem_lseek, /* borrow this */
+	.read		= pagemap2_read,
 };
 #endif /* CONFIG_PROC_PAGE_MONITOR */
 

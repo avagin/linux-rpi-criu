@@ -1049,14 +1049,17 @@ int tcp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	}
 
 	if (unlikely(tp->repair)) {
+		err = -EINVAL;
+		if (tp->repair_queue == TCP_NO_QUEUE)
+			goto out_err;
+
+		if (sk->sk_state != TCP_ESTABLISHED)
+			goto out_err;
+
 		if (tp->repair_queue == TCP_RECV_QUEUE) {
 			copied = tcp_send_rcvq(sk, msg, size);
 			goto out;
 		}
-
-		err = -EINVAL;
-		if (tp->repair_queue == TCP_NO_QUEUE)
-			goto out_err;
 
 		/* 'common' sending to sendq */
 	}
@@ -2312,7 +2315,39 @@ void tcp_sock_destruct(struct sock *sk)
 static inline bool tcp_can_repair_sock(const struct sock *sk)
 {
 	return ns_capable(sock_net(sk)->user_ns, CAP_NET_ADMIN) &&
-		((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_ESTABLISHED));
+		(sk->sk_state != TCP_LISTEN);
+}
+
+static int tcp_repair_set_window(struct tcp_sock *tp, char __user *optbuf, int len)
+{
+	struct tcp_repair_window opt;
+
+	if (!tp->repair)
+		return -EPERM;
+
+	if (len != sizeof(opt))
+		return -EINVAL;
+
+	if (copy_from_user(&opt, optbuf, sizeof(opt)))
+		return -EFAULT;
+
+	if (opt.max_window < opt.snd_wnd)
+		return -EINVAL;
+
+	if (after(opt.snd_wl1, tp->rcv_nxt + opt.rcv_wnd))
+		return -EINVAL;
+
+	if (after(opt.rcv_wup, tp->rcv_nxt))
+		return -EINVAL;
+
+	tp->snd_wl1	= opt.snd_wl1;
+	tp->snd_wnd	= opt.snd_wnd;
+	tp->max_window	= opt.max_window;
+
+	tp->rcv_wnd	= opt.rcv_wnd;
+	tp->rcv_wup	= opt.rcv_wup;
+
+	return 0;
 }
 
 static int tcp_repair_options_est(struct tcp_sock *tp,
@@ -2630,6 +2665,9 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 		else
 			tp->tsoffset = val - tcp_time_stamp;
 		break;
+	case TCP_REPAIR_WINDOW:
+		err = tcp_repair_set_window(tp, optval, optlen);
+		break;
 	default:
 		err = -ENOPROTOOPT;
 		break;
@@ -2831,6 +2869,28 @@ static int do_tcp_getsockopt(struct sock *sk, int level,
 			return -EINVAL;
 		break;
 
+	case TCP_REPAIR_WINDOW: {
+		struct tcp_repair_window opt;
+
+		if (get_user(len, optlen))
+			return -EFAULT;
+
+		if (len != sizeof(opt))
+			return -EINVAL;
+
+		if (!tp->repair)
+			return -EPERM;
+
+		opt.snd_wl1	= tp->snd_wl1;
+		opt.snd_wnd	= tp->snd_wnd;
+		opt.max_window	= tp->max_window;
+		opt.rcv_wnd	= tp->rcv_wnd;
+		opt.rcv_wup	= tp->rcv_wup;
+
+		if (copy_to_user(optval, &opt, len))
+			return -EFAULT;
+		return 0;
+	}
 	case TCP_QUEUE_SEQ:
 		if (tp->repair_queue == TCP_SEND_QUEUE)
 			val = tp->write_seq;
